@@ -20,18 +20,26 @@ def load_next_day_price(stock_data, stock_data_copy, end_date):
     prices = []
     for row in range(len(stock_data)):
         day_later = stock_data_copy.loc[row].timestamp + timedelta(days=1)
-        prices.append(get_next_price(stock_data, stock_data_copy, day_later, end_date))
+        prices.append(get_next_price(stock_data, stock_data_copy, day_later, end_date, True))
     stock_data['next_day_price'] = prices
 
-def get_next_price(stock_data, stock_data_copy, current_date, end_date):
+def get_next_price(stock_data, stock_data_copy, current_date, end_date, top_level):
     if current_date > end_date:
         return None
     
-    diff = ((stock_data.loc['AAPL'].asof(current_date)).timestamp - current_date).total_seconds()
-    if fabs(diff) <= 120:
-        return stock_data.loc['AAPL'].asof(current_date).vwap
+    if current_date in stock_data.loc['AAPL'].index:
+        if top_level:
+            return stock_data.loc[('AAPL', current_date)].vwap
+        else:
+            prev_date = current_date - timedelta(days=1)
+            row = stock_data.loc['AAPL'].asof(prev_date)
+            if row.timestamp.day == prev_date.day and (row.timestamp.hour > 0 or current_date.hour == 0):
+                return None
+            else:
+                return stock_data.loc[('AAPL', current_date)].vwap
+        
     else:
-        return get_next_price(stock_data, stock_data_copy, current_date + timedelta(days=1), end_date)
+        return get_next_price(stock_data, stock_data_copy, current_date + timedelta(days=1), end_date, False)
 
 stock_data = load_historical_data().df
 
