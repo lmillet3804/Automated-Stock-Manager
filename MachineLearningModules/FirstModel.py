@@ -54,41 +54,17 @@ stock_data['minute'] = [d.minute for d in stock_data_copy['timestamp']]
 stock_data['timestamp'] = [d for d in stock_data_copy['timestamp']]
 stock_data_copy['next_day'] = stock_data_copy['timestamp'] + timedelta(days=1)
 
-#print(stock_data_copy.loc[0].at['next_day'])
-#print(stock_data.asof(('AAPL', stock_data_copy.loc[0].at['timestamp'])))
-# print(stock_data.loc['AAPL'].asof(stock_data_copy.loc[0].at['next_day']))
-# print(stock_data.loc['AAPL'].asof(stock_data_copy.loc[1].at['next_day']))
-# print(stock_data.loc['AAPL'].asof(stock_data_copy.loc[2].at['next_day']))
-# print(stock_data.loc['AAPL'].asof(stock_data_copy.loc[60].at['next_day']))
-
-#stock_data['next_day_price'] = stock_data_copy.asof(((sym for sym in stock_data_copy['symbol']), next_time for next_time in stock_data_copy['next_day']), subset='wvap')
-#stock_data['next_day_price'] = [stock_data.loc['AAPL'].asof(stock_data_copy.loc[i].at['next_day']).vwap for i in range(len(stock_data_copy.index))]
 load_next_day_price(stock_data, stock_data_copy, pd.Timestamp('2021-02-08 00:00:00').tz_localize('US/Eastern'))
-stock_data.drop(columns=['timestamp'])
-#stock_data['next_day_timestamp'] = [stock_data.loc['AAPL'].asof(stock_data_copy.loc[i].at['next_day']).index for i in range(len(stock_data_copy.index))]
+
+stock_data.drop(['timestamp'], axis=1, inplace=True)
 
 
-filepath = Path('out.csv')
-try:
-    stock_data.to_csv(filepath)
-except Exception:
-    subprocess.call("TASKKILL /F /IM excel.exe", shell=True)
-    stock_data.to_csv(filepath)
+filepath = Path('MachineLearningModules/out.csv')
+stock_data.to_csv(filepath)
     
 print(stock_data)
 stock_data_full = stock_data.copy()
 
-# #print(stock_data.loc['AAPL'].last('1D'))
-
-# stock_data.loc['AAPL'] = stock_data.loc['AAPL'].drop(labels=stock_data.loc['AAPL'].last('1D').index, axis=0)
-# print(stock_data)
-# print(stock_data_full)
-
 train_set, test_set = train_test_split(stock_data, test_size=0.2, shuffle=False)
 
-# print(train_set)
-# print(test_set)
-
 stock_data = train_set.copy()
-
-# print(stock_data)
