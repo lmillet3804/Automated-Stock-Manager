@@ -2,6 +2,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 import datetime
+import tensorflow as tf
+import tensorflow_probability as tfp
+import keras.backend as K
 from pathlib import Path
 from keras.models import Sequential
 from keras.optimizers import Adam
@@ -9,6 +12,7 @@ from keras.callbacks import ModelCheckpoint
 from keras import layers
 from keras.models import load_model
 from sklearn.metrics import mean_absolute_error
+tfd = tfp.distributions
 
 def str_to_datetime(s):
     split = s.split('-')
@@ -76,7 +80,7 @@ def windowed_df_to_date_X_y(windowed_df):
 
     Y = df_as_np[:, -1]
 
-    return dates, X.astype(np.float32), Y.astype(np.float32)
+    return dates, X.astype(np.float64), Y.astype(np.float64)
 
 df = pd.read_csv('StockData/MSFT.csv')
 
@@ -107,35 +111,50 @@ dates_test, X_test, y_test = dates[q_90:], X[q_90:], y[q_90:]
 # plt.legend(['Train', 'Validation', 'Test'])
 # plt.show()
 
-model = Sequential([layers.Input((3, 1)),
+train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train))
+val_dataset = tf.data.Dataset.from_tensor_slices((X_val, y_val))
+test_dataset = tf.data.Dataset.from_tensor_slices((X_test, y_test))
+
+model = Sequential([layers.Input((3,1)),
                     layers.LSTM(64),
                     layers.Dense(32, activation='relu'),
                     layers.Dense(32, activation='relu'),
                     layers.Dense(2, activation='relu')])
+model.add(tfp.layers.DistributionLambda(
+    lambda t: tfd.Normal(loc=t[...,0], 
+                         scale=0.01*tf.math.softplus(t[...,1])),
+    name='normal_dist'))
+
+negloglik = lambda y, p_y: -p_y.log_prob(y)
 
 cp = ModelCheckpoint('model1/', save_best_only=True)
-model.compile(loss='mse', 
+model.compile(loss=negloglik, 
               optimizer=Adam(learning_rate=0.001),
               metrics=['mean_absolute_error'])
 
-model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=100, callbacks=[cp])
+model.fit(train_dataset, epochs=1)
 model = load_model('model1/')
 
-train_predictions = model.predict(X_train).flatten()
-val_predictions = model.predict(X_val).flatten()
-test_predictions = model.predict(X_test).flatten()
+train_predictions = model.predict(train_dataset).flatten()
+val_predictions = model.predict(val_dataset).flatten()
+test_predictions = model.predict(test_dataset).flatten()
 
-mae_error = mean_absolute_error(y_test, test_predictions)
-print(mae_error)
+mean = lambda x: x.mean().numpy().flatten()
+sd = lambda x: x.stddev().numpy().flatten()
 
-plt.plot(dates_train, train_predictions)
-plt.plot(dates_train, y_train)
-plt.plot(dates_val, val_predictions)
-plt.plot(dates_val, y_val)
-plt.plot(dates_test, test_predictions)
-plt.plot(dates_test, y_test)
-plt.legend(['Training Predictons', 'Training Observations', 'Validation Predictions', 'Validation Observations', 'Testing Predictions', 'Testing Observations'])
-plt.show()
+def conf_int(pred):
+    return np.array([mean(pred) - 2*sd(pred), mean(pred) + 2*sd(pred)])
+
+print(conf_int(train_predictions))
+
+# plt.plot(dates_train, train_predictions)
+# plt.plot(dates_train, y_train)
+# plt.plot(dates_val, val_predictions)
+# plt.plot(dates_val, y_val)
+# plt.plot(dates_test, test_predictions)
+# plt.plot(dates_test, y_test)
+# plt.legend(['Training Predictons', 'Training Observations', 'Validation Predictions', 'Validation Observations', 'Testing Predictions', 'Testing Observations'])
+# plt.show()
 
 # print(test_predictions)
 
