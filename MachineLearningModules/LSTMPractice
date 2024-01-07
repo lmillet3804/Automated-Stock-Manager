@@ -1,179 +1,85 @@
-import pandas as pd
-import matplotlib.pyplot as plt
 import numpy as np
-import datetime
-import tensorflow as tf
-import tensorflow_probability as tfp
-import keras.backend as K
-from pathlib import Path
 from keras.models import Sequential
-from keras.optimizers import Adam
-from keras.callbacks import ModelCheckpoint
-from keras import layers
-from keras.models import load_model
-from sklearn.metrics import mean_absolute_error
-tfd = tfp.distributions
-
-def str_to_datetime(s):
-    split = s.split('-')
-    year, month, day = int(split[0]), int(split[1]), int(split[2])
-    return datetime.datetime(year=year, month=month, day=day)
-
-def df_to_windowed_df(dataframe, first_date_str, last_date_str, n=3):
-    first_date = str_to_datetime(first_date_str)
-    last_date = str_to_datetime(last_date_str)
-
-    target_date = first_date
-
-    dates = []
-    X, Y = [], []
-
-    last_time = False
-    while True:
-        df_subset = dataframe.loc[:target_date].tail(n+1)
-
-        if len(df_subset) != n+1:
-            print(f'Error: Window of size {n} is too large for date {target_date}')
-            return
-        
-        values = df_subset['Close'].to_numpy()
-        x, y = values[:-1], values [-1]
-
-        dates.append(target_date)
-        X.append(x)
-        Y.append(y)
-
-        next_week = dataframe.loc[target_date:target_date+datetime.timedelta(days=7)]
-        next_datetime_str = str(next_week.head(2).tail(1).index.values[0])
-        next_date_str = next_datetime_str.split('T')[0]
-        year_month_day = next_date_str.split('-')
-        year, month, day = year_month_day
-        next_date = datetime.datetime(day=int(day), month=int(month), year=int(year))
-
-        if last_time:
-            break
-
-        target_date = next_date
-
-        if target_date == last_date:
-            last_time = True
-
-    ret_df = pd.DataFrame({})
-    ret_df['Target Date'] = dates
-
-    X = np.array(X)
-    for i in range(0,n):
-        X[:, i]
-        ret_df[f'Target-{n-i}'] = X[:, i]
-    
-    ret_df['Target'] = Y
-
-    return ret_df
-
-def windowed_df_to_date_X_y(windowed_df):
-    df_as_np = windowed_df.to_numpy()
-
-    dates = df_as_np[:, 0]
-
-    middle_matrix = df_as_np[:, 1:-1]
-    X = middle_matrix.reshape((len(dates), middle_matrix.shape[1], 1))
-
-    Y = df_as_np[:, -1]
-
-    return dates, X.astype(np.float64), Y.astype(np.float64)
+from keras.layers import LSTM
+from keras.layers import Dense
+from keras.layers import Dropout
+import pandas as pd
+from matplotlib import pyplot as plt
+from sklearn.preprocessing import StandardScaler
+import seaborn as sns
 
 df = pd.read_csv('StockData/MSFT.csv')
+dates = pd.to_datetime(df['Date'])
 
-df = df[['Date', 'Close']]
+cols = list(df)[1:6]
 
-df['Date'] = df['Date'].apply(str_to_datetime)
-df.index = df.pop('Date')
+df_for_training = df[cols].astype(float)
 
-#plt.plot(df.index, df['Close'])
+scaler = StandardScaler()
+scaler = scaler.fit(df_for_training)
+df_for_training_scaled = scaler.transform(df_for_training)
 
-windowed_df = df_to_windowed_df(df,
-                                '2023-01-10',
-                                '2024-01-05',
-                                n=3)
+X = []
+y = []
 
-dates, X, y = windowed_df_to_date_X_y(windowed_df)
+n_future = 1
+n_past = 14
 
-q_80 = int(len(dates) * .95)
-q_90 = int(len(dates) * .98)
+for i in range(n_past, len(df_for_training_scaled) - n_future + 1):
+    X.append(df_for_training_scaled[i - n_past:i, 0:df_for_training.shape[1]])
+    y.append(df_for_training_scaled[i + n_future - 1:i + n_future, 0])
 
-dates_train, X_train, y_train = dates[:q_80], X[:q_80], y[:q_80]
-dates_val, X_val, y_val = dates[q_80:q_90], X[q_80:q_90], y[q_80:q_90]
+X, y = np.array(X), np.array(y)
+
+q_80 = int(len(dates) * 0.8)
+q_90 = int(len(dates) * 0.9)
+
+train_dates, train_X, train_y = dates[:q_80], X[:q_80], y[:q_80]
+val_dates, val_X, val_y = dates[q_80:q_90], X[q_80:q_90], y[q_80:q_90]
 dates_test, X_test, y_test = dates[q_90:], X[q_90:], y[q_90:]
 
-# plt.plot(dates_train, y_train)
-# plt.plot(dates_val, y_val)
-# plt.plot(dates_test, y_test)
-# plt.legend(['Train', 'Validation', 'Test'])
-# plt.show()
+print('trainX shape == {}.'.format(train_X.shape))
+print('trainY shape == {}.'.format(train_y.shape))
 
-train_dataset = tf.data.Dataset.from_tensor_slices((X_train, y_train))
-val_dataset = tf.data.Dataset.from_tensor_slices((X_val, y_val))
-test_dataset = tf.data.Dataset.from_tensor_slices((X_test, y_test))
+model = Sequential()
+model.add(LSTM(64, activation='relu', input_shape=(train_X.shape[1], train_X.shape[2]), return_sequences=True))
+model.add(LSTM(32, activation='relu', return_sequences=False))
+model.add(Dropout(0.2))
+model.add(Dense(train_y.shape[1]))
 
-model = Sequential([layers.Input((3,1)),
-                    layers.LSTM(64),
-                    layers.Dense(32, activation='relu'),
-                    layers.Dense(32, activation='relu'),
-                    layers.Dense(2, activation='relu')])
-model.add(tfp.layers.DistributionLambda(
-    lambda t: tfd.Normal(loc=t[...,0], 
-                         scale=0.01*tf.math.softplus(t[...,1])),
-    name='normal_dist'))
+model.compile(optimizer='adam', loss='mse')
+print(model.summary())
 
-negloglik = lambda y, p_y: -p_y.log_prob(y)
+history = model.fit(train_X, train_y, epochs=10, batch_size=16, validation_data=(val_X, val_y), verbose=1)
 
-cp = ModelCheckpoint('model1/', save_best_only=True)
-model.compile(loss=negloglik, 
-              optimizer=Adam(learning_rate=0.001),
-              metrics=['mean_absolute_error'])
+plt.plot(history.history['loss'], label='Training loss')
+plt.plot(history.history['val_loss'], label='Validation loss')
+plt.legend()
+plt.show()
 
-model.fit(train_dataset, epochs=1)
-model = load_model('model1/')
+n_future=len(val_X)
+forecast_period_dates = pd.date_range(list(train_dates)[-1], periods=n_future, freq='1d').tolist()
 
-train_predictions = model.predict(train_dataset).flatten()
-val_predictions = model.predict(val_dataset).flatten()
-test_predictions = model.predict(test_dataset).flatten()
+forecast = model.predict(val_X)
 
-mean = lambda x: x.mean().numpy().flatten()
-sd = lambda x: x.stddev().numpy().flatten()
+forecast_copies = np.repeat(forecast, df_for_training.shape[1], axis=-1)
+y_pred_future = scaler.inverse_transform(forecast_copies)[:,0]
 
-def conf_int(pred):
-    return np.array([mean(pred) - 2*sd(pred), mean(pred) + 2*sd(pred)])
+forecast_dates = []
+for time_i in forecast_period_dates:
+    forecast_dates.append(time_i.date())
 
-print(conf_int(train_predictions))
+df_forecast = pd.DataFrame({'Date':np.array(forecast_dates), 'Open':y_pred_future})
+df_forecast['Date'] = pd.to_datetime(df_forecast['Date'])
 
-# plt.plot(dates_train, train_predictions)
-# plt.plot(dates_train, y_train)
-# plt.plot(dates_val, val_predictions)
-# plt.plot(dates_val, y_val)
-# plt.plot(dates_test, test_predictions)
-# plt.plot(dates_test, y_test)
-# plt.legend(['Training Predictons', 'Training Observations', 'Validation Predictions', 'Validation Observations', 'Testing Predictions', 'Testing Observations'])
-# plt.show()
+original = df[['Date', 'Open']]
+original['Date'] = pd.to_datetime(original['Date'])
+original = original.loc[original['Date'] >= '2024-01-05']
 
-# print(test_predictions)
+# sns.lineplot(x=original['Date'], y=original['Open'])
+# sns.lineplot(x=df_forecast['Date'], y=df_forecast['Open'])
 
-# change_df = pd.DataFrame(data={'Test Prediction':test_predictions, 'Test Actual':y_test})
-# pred_change = []
-# act_change = []
-
-# for i in range(len(test_predictions)-1):
-#     pred_change.append((test_predictions[i+1]-test_predictions[i]) / test_predictions[i])
-#     act_change.append((y_test[i+1]-y_test[i]) / y_test[i])
-# pred_change.append(None)
-# act_change.append(None)
-# change_df['Prediction Change'] = pred_change
-# change_df['Actual Change'] = act_change
-
-# filepath = Path('MachineLearningModules/out.csv')
-# change_df.to_csv(filepath)
-
-# plt.plot(dates_test, test_predictions)
-# plt.plot(dates_test, y_test)
-# plt.legend(['Testing Predictions', 'Testing Observations'])
-# plt.show()
+plt.plot(val_dates, val_y)
+plt.plot(df_forecast['Date'], df_forecast['Open'])
+plt.legend()
+plt.show()
