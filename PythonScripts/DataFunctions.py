@@ -3,7 +3,7 @@ import pandas as pd
 import os
 from pathlib import Path
 
-def download_from_yf(tickers:list, start_date:str=None, end_date:str=None, filepath:str='StockData/') -> None:
+def download_from_yf(tickers:list, start_date:str='2013-04-29', end_date:str=None, filepath:str='StockData/') -> None:
     for ticker in tickers:
         req = yf.download(ticker, start_date, end_date)
         path = Path(f'{filepath}{ticker}.csv')
