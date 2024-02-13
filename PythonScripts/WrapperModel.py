@@ -1,4 +1,4 @@
-from StockTrainingModel import train_model_for_ticker
+from StockTrainingModel import train_model_for_ticker, load_model_for_ticker
 from keras.models import Model
 from keras.layers import Dense, Input
 from keras.optimizers import Adam
@@ -89,7 +89,6 @@ class Node:
             return
         
         #update bias values using bias_grad method to get gradient of node wrt bias
-        new_value = grad * self.__bias_grad() * learning_rate
         bias_gradient[self.network_index] += grad * self.__bias_grad() * learning_rate
 
         for connection in self.in_connections:
@@ -99,7 +98,6 @@ class Node:
 
 class Layer:
     #Special class of nodes, essentially a list of nodes
-    #Will need prev layer and next layer
     def __init__(self, node_num, prev_layer, activation_function:Activation_Functions=Activation_Functions.RELU):
         self.prev_layer = prev_layer
         self.nodes = []
@@ -115,8 +113,7 @@ class Connection:
     def __init__(self, prev_node:Node, next_node:Node, network_index:int) -> None:
         self.prev_node = prev_node
         self.next_node = next_node
-        self.weight = random.random()
-        #self.weight = 2
+        self.weight = random.random() * 1
         self.value = prev_node.output_value
         self.network_index = network_index
 
@@ -148,15 +145,11 @@ class NeuralNetwork:
     
     def train(self, X:pd.DataFrame, y:pd.DataFrame, epochs, learning_rate):
         for e in range(epochs):
-            #print(f'\nEpoch {e}')
             #list of vectors from each training data sample
             out_vectors = []
             out_sums = []
             for i in range(len(X)):
-                #evaluate output
-                #print('input layer')
                 for j in range(len(X.columns)):
-                    #print(X.iloc[i][j])
                     self.input_layer.nodes[j].input_value = X.iloc[i][j]
                     self.input_layer.nodes[j].evaluate()
                 
@@ -188,11 +181,8 @@ class NeuralNetwork:
                 R = 0
                 for j in range(len(out_vectors[i])):
                     R += out_vectors[i][j] * y.iloc[i][j]
-                #print(f'R:{R}')
                 loss += math.exp(-R)
             average_loss = loss / len(out_vectors)
-            #print(f'loss: {loss}')
-            #print(f'average_loss: {average_loss}')
 
             conn_gradient = np.zeros(len(self.connections))
             bias_gradient = np.zeros(len(self.nodes))
@@ -209,7 +199,6 @@ class NeuralNetwork:
                 else:
                     for j in range(len(out_vectors[i])):
                         grad = out_vectors[i][j] * -1 * average_loss
-                        #print(f'gradient: {grad}')
                         self.output_layer.nodes[j].back(grad, learning_rate, conn_gradient, bias_gradient)
             
             for i in range(len(self.connections)):
@@ -217,13 +206,7 @@ class NeuralNetwork:
             
             for i in range(len(self.nodes)):
                 self.nodes[i].bias -= bias_gradient[i]
-
-            # percent = ("{0:." + str(1) + "f}").format(100 * ((e + 1) / float(epochs)))
-            # filledLength = int(100 * (e + 1) // epochs)
-            # bar = '█' * filledLength + '-' * (100 - filledLength)
-            # print(f'\r{e+1}/{epochs} |{bar}| {percent}% complete', end='\r')
             print(f'Epoch {e+1}/{epochs} - Average return: {math.log(average_loss) * -1}')
-        #print()
     
     def predict(self, X:pd.DataFrame) -> pd.DataFrame:
         columns = []
@@ -256,48 +239,39 @@ class NeuralNetwork:
         
         return prediction
 
-
-
-                
-# layer_1 = Layer(2, None)
-# layer_2 = Layer(16, layer_1)
-# layer_3 = Layer(16, layer_2)
-# layer_4 = Layer(2, layer_3, Activation_Functions.RELU)
-
-# neural_network = NeuralNetwork([layer_1, layer_2, layer_3, layer_4])
-
-# X_train = pd.DataFrame(data={'col_1':[0.3,0.5,1], 'col_2':[0.1, 0.1, 0]})
-# y_train = pd.DataFrame(data={'AAPL':[-0.5,0.1,-0.6], 'MSFT':[0.2, 0.05, -0.1]})
-# neural_network.train(X_train, y_train, 3, 0.0001)
-
-# X_test = pd.DataFrame(data={'col_1':[0.2,0.3,0.3], 'col_2':[0.5, -0.1, 0.2]})
-
-# print(neural_network.predict(X_test))
-
-stocks_to_trade = ['MSFT', 'AAPL']
+stocks_to_trade = ['AXP', 'AMGN', 'AAPL', 'BA', 'CAT', 'CSCO', 'CVX', 'GS', 'HD', 'HON', 'IBM', 'INTC', 'JNJ', 'KO', 'JPM',
+                   'MCD', 'MMM', 'MRK', 'MSFT', 'NKE', 'PG', 'TRV', 'UNH', 'CRM', 'VZ', 'V', 'WBA', 'WMT', 'DIS']
 training_data_df = pd.DataFrame()
 actual_train_df = pd.DataFrame()
+train_dates = []
 val_data_df = pd.DataFrame()
 actual_val_df = pd.DataFrame()
+val_dates = []
 test_data_df = pd.DataFrame()
 actual_test_df = pd.DataFrame()
+test_dates = []
 
 for stock in stocks_to_trade:
-    new_train, new_val, new_test, new_train_dates, new_val_dates, new_test_dates, real_train, real_val, real_test = train_model_for_ticker(stock)
-    training_data_df.insert(stocks_to_trade.index(stock), stock, new_train)
-    actual_train_df.insert(stocks_to_trade.index(stock), f'{stock}_real', real_train)
-    val_data_df.insert(stocks_to_trade.index(stock), stock, new_val)
-    actual_val_df.insert(stocks_to_trade.index(stock), f'{stock}_real', real_val)
-    test_data_df.insert(stocks_to_trade.index(stock), stock, new_test)
-    actual_test_df.insert(stocks_to_trade.index(stock), f'{stock}_real', real_test)
+    print(f'\nDownloading stock: {stock}\n')
+    new_train, new_val, new_test, train_dates, val_dates, test_dates, real_train, real_val, real_test = load_model_for_ticker(stock)
+    try:
+        training_data_df.insert(stocks_to_trade.index(stock), stock, new_train)
+        actual_train_df.insert(stocks_to_trade.index(stock), f'{stock}_real', real_train)
+        val_data_df.insert(stocks_to_trade.index(stock), stock, new_val)
+        actual_val_df.insert(stocks_to_trade.index(stock), f'{stock}_real', real_val)
+        test_data_df.insert(stocks_to_trade.index(stock), stock, new_test)
+        actual_test_df.insert(stocks_to_trade.index(stock), f'{stock}_real', real_test)
+    except ValueError:
+        print(f'Value Error occured. Removing {stock}')
+        stocks_to_trade.remove(stock)
 
 input_layer = Layer(len(training_data_df.columns), None)
-layer_1 = Layer(32, input_layer)
-layer_2 = Layer(32, layer_1)
+layer_1 = Layer(16, input_layer)
+layer_2 = Layer(16, layer_1)
 output_layer = Layer(len(actual_train_df.columns), layer_2)
 
 neural_network = NeuralNetwork(layers=[input_layer, layer_1, layer_2, output_layer])
-neural_network.train(training_data_df, actual_train_df, 10, 0.01)
+neural_network.train(training_data_df, actual_train_df, 2, 0.001)
 
 val_data_predictions = neural_network.predict(val_data_df)
 val_returns = []
@@ -309,5 +283,20 @@ for i in range(len(val_data_predictions)):
         R += r * 100
     val_returns.append(R)
 
-plt.plot(val_returns)
+train_data_predictions = neural_network.predict(training_data_df)
+train_returns = []
+R = 0
+for i in range(len(train_data_predictions)):
+    r = 0
+    for j in range(len(train_data_predictions.columns)):
+        r += train_data_predictions.iloc[i][j] * actual_train_df.iloc[i][j]
+        R += r * 100
+    train_returns.append(R)
+
+train_dates = pd.to_datetime(train_dates)
+val_dates = pd.to_datetime(val_dates)
+test_dates = pd.to_datetime(test_dates)
+
+plt.plot(train_dates, train_returns)
+plt.plot(val_dates, val_returns)
 plt.show()
