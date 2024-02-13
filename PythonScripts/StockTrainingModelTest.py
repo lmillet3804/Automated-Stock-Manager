@@ -1,0 +1,1 @@
+from StockTrainingModel import train_model_for_ticker
