@@ -113,3 +113,5 @@ def load_model_for_ticker(ticker:str):
         return train_predictions, val_predictions, test_predictions, dates_train, dates_val, dates_test, real_drp_train, real_drp_val, real_drp_test
     else:
         return train_model_for_ticker(ticker)
+
+# Run CodeQL
